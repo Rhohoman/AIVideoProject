@@ -1,0 +1,32 @@
+Frontend
+
+React or Next.js
+Backend API
+Spring Boot
+
+
+AI worker
+
+Python + FastAPI or plain worker process
+
+
+Database
+
+Postgres
+
+
+File storage
+
+AWS S3
+
+
+Queue
+
+Redis queue, RabbitMQ, or SQS
+AI/CV libraries
+OpenCV
+PyTorch
+OCR library
+tracking/detection models
+
+This is simple enough to build but strong enough to scale later.

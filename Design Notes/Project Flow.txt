@@ -1,0 +1,133 @@
+Project Flow
+
+A. Frontend
+
+This is what the user sees.
+
+It lets them:
+
+upload a video
+choose which player they want tracked
+maybe enter “jersey #30, blue jersey”
+view results after processing
+
+This could be built with:
+
+React
+Next.js
+B. API server
+
+This is the main backend application.
+
+It handles:
+
+upload requests
+job creation
+status checks
+returning results
+
+This is the “control center” for the app.
+
+Since you mentioned wanting language explained, here is a term:
+
+API
+
+API means the set of endpoints your frontend talks to.
+
+Examples:
+
+POST /videos/upload
+POST /videos/{id}/analyze
+GET /videos/{id}/results
+
+Good choice for you:
+
+Spring Boot if you want Java backend
+Node.js if you want JavaScript backend
+FastAPI if you want Python backend
+
+For this kind of product, I would often recommend:
+
+Spring Boot for main business backend
+Python for the AI processing service
+
+That split is very common.
+
+C. Video storage
+
+Videos are large, so do not store them directly in a normal relational database.
+
+Store them in:
+
+S3
+cloud object storage
+blob storage
+
+This is called object storage.
+
+Object storage
+
+A place to store files like:
+
+videos
+frames
+clips
+thumbnails
+
+Instead of storing raw video inside Postgres, you store the file in object storage and save its location in the database.
+
+D. Processing worker
+
+This is a background service that actually analyzes the video.
+
+The API server should not do heavy AI work directly because video analysis takes time.
+
+Instead:
+
+user uploads video
+API creates a job
+worker processes the job in the background
+Worker
+
+A worker is a service that handles long-running tasks.
+
+Examples:
+
+extract frames
+run player detection
+run OCR for jersey numbers
+run action recognition
+E. Database
+
+This stores structured information:
+
+user
+video
+analysis status
+detected players
+actions
+stat outputs
+
+For MVP:
+
+Postgres is a strong choice
+F. Queue
+
+A queue helps pass work from the API to the worker.
+
+Example:
+
+API adds message: “analyze video 123”
+worker picks it up later
+Queue
+
+A queue is like a task line.
+It prevents your API from freezing while AI is processing.
+
+Examples:
+
+RabbitMQ
+Redis queue
+AWS SQS
+
+For MVP, even a simpler job system can work, but queues are the correct design direction.

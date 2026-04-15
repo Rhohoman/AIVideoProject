@@ -1,0 +1,60 @@
+Updated 04/15/26
+
+Things to start with
+
+
+a detailed MVP architecture diagram
+a database schema draft
+a backend API contract
+a step-by-step implementation plan
+
+
+
+
+
+--------------------------------------------------------------------
+
+
+
+
+
+
+
+
+TO RESEARCH
+
+
+
+Object detection
+
+Finding players, ball, hoop in a frame
+
+Tracking
+
+Keeping the same player identity across frames
+
+OCR
+
+Reading jersey numbers
+
+Event inference
+
+Turning movement patterns into basketball actions
+
+Business logic / stats engine
+
+Turning detected actions into official-like stats
+
+Queue
+
+Handling long-running work asynchronously
+
+Object storage
+
+Saving video files outside the database
+
+Relational database
+
+Saving structured results and metadata
+
+If you understand those, the whole design becomes much easier.
