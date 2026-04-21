@@ -1,0 +1,96 @@
+08 - USER EXPERIENCE
+=====================
+
+THE COMPLETE USER FLOW (v1)
+-----------------------------
+
+1. User arrives at the app (web browser)
+
+2. Upload screen
+   - User selects or drags a video file
+   - User sees estimated file size warning if over a reasonable limit
+   - User clicks "Analyze"
+
+3. Processing screen
+   - App shows "Analyzing your video..."
+   - Frontend polls GET /videos/{id}/status every 5 seconds
+   - Progress can show current step: "Detecting players...", "Tracking motion..."
+   - Estimated wait time shown if possible (based on video duration)
+
+4. Results screen (shown when job status = 'done')
+
+   TEAM SCORES (top of page)
+   ┌─────────────────────────────────┐
+   │  Team Blue       Team White     │
+   │     8 pts           10 pts     │
+   └─────────────────────────────────┘
+
+   EVENT TIMELINE (below scores)
+   Each event shows:
+   - Timestamp (clickable if video playback is added in v2)
+   - Which team scored
+   - Confidence score
+   - Flag icon if confidence < 0.75
+
+   Example row:
+   [0:23]  Team White made basket  ● 0.91 confidence
+   [0:47]  Team Blue  shot missed  ○ 0.77 confidence
+   [1:01]  Team Blue  made basket  ▲ 0.58 confidence  ⚠ verify
+
+   SCORING NOTE (footer of results)
+   "Points shown as 1pt per basket. Arc detection (1pt/2pt distinction) coming in v2."
+
+5. No login required for v1 — anonymous uploads are fine.
+
+
+USER TRUST PRINCIPLES
+----------------------
+
+AI will sometimes be wrong. The interface must make this clear without
+making users feel the product is unreliable.
+
+Rules:
+  - Never show a result without its confidence score
+  - Use plain language for confidence levels:
+      0.75+ → shown normally
+      0.50-0.74 → "please verify this one"
+      < 0.50 → not shown (filtered out before display)
+  - Don't use phrases like "AI detected" or "machine learning confirmed"
+    — they imply a certainty that doesn't exist
+  - Use phrases like "estimated," "detected," "likely"
+
+Example confidence display:
+  "Made basket detected (confidence: 0.83)"
+  "Shot attempt — did not go in (confidence: 0.71)"
+  "Made basket — please verify this one (confidence: 0.58)"
+
+
+WHAT THE UI DOES NOT DO IN V1
+-------------------------------
+
+- No video playback in the browser
+- No shot chart / court diagram
+- No individual player stats (only team totals)
+- No account / login
+- No sharing or export
+- No editing or correcting detections manually
+- No mobile-optimized layout (desktop only is fine for v1)
+
+
+V2 UI ADDITIONS (PLANNED)
+---------------------------
+
+- Video playback with event markers on the timeline
+- Click an event to jump to that moment in the video
+- Shot chart showing where shots were taken on the court
+- Export results as CSV or PDF
+
+
+DESIGN PRINCIPLE
+-----------------
+
+The product promise for v1 is narrow and honest:
+"Upload a 3v3 game video. Get an estimated point total with timestamps."
+
+Do not promise what the system cannot deliver.
+Confidence scores are the primary trust mechanism.

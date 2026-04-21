@@ -1,0 +1,110 @@
+09 - MVP ROADMAP
+================
+
+Three versions, each building on the previous. Do not start v2 until v1
+is working on a real video with measurable accuracy.
+
+
+V1 - POINTS ONLY (BUILD THIS FIRST)
+--------------------------------------
+
+Goal: Ship something that works end-to-end on one real video.
+
+Input:
+  - One uploaded basketball video (3v3, distinct jersey colors)
+
+System does:
+  - Detects all 6 players using YOLOv8n
+  - Assigns players to Team A / Team B using jersey color clustering
+  - Tracks all players and the ball using ByteTrack
+  - Estimates possession per frame
+  - Detects shot attempts
+  - Detects made baskets with confidence scores
+  - Writes results to database
+
+Frontend shows:
+  - Team A vs Team B point totals
+  - Event timeline with timestamps and confidence scores
+  - Low-confidence events flagged for user review
+  - Scoring disclaimer: "1pt per basket — arc detection in v2"
+
+Infrastructure:
+  - FastAPI + Python worker on Render (single service)
+  - Supabase Postgres
+  - Cloudflare R2
+  - Next.js on Vercel
+
+Success criteria:
+  - 70%+ accuracy on made basket detection verified against one real video
+  - Full flow works: upload → process → results displayed
+
+
+V2 - SHOOTING DETAIL
+----------------------
+
+Add after v1 is validated:
+
+  - Arc detection (1pt inside, 2pt outside — FIBA 3x3 rules)
+  - Shot chart: court diagram showing where shots were taken
+  - Rebounds (offensive and defensive)
+  - Pass detection (basic: ball changes possession without a shot)
+  - Video playback in the browser with event markers on the timeline
+  - Highlight clip generation: short clip around each made basket
+
+Infrastructure additions (only if needed):
+  - GPU instance on Render if CPU processing time is unacceptable
+  - If clip generation requires it: ffmpeg processing step in worker
+
+
+V3 - FULL GAME STATS
+---------------------
+
+Add after v2 is validated:
+
+  - Individual player stats (not just team totals)
+    → requires either: user labels players manually, or
+    → jersey number OCR (revisit this — 3x3 makes numbers more visible)
+  - Assists (possession chain tracking — hard to get right)
+  - Steals (possession change without a shot or pass)
+  - Team-level stats dashboard
+  - Multi-player tracking across multiple videos from the same game
+
+Infrastructure additions:
+  - User accounts / authentication (NextAuth or Supabase Auth)
+  - Video library per user
+
+
+FUTURE: MARKETING / BRAND DETECTION (SEPARATE PIPELINE)
+---------------------------------------------------------
+
+This is a second product direction, not part of the sports pipeline.
+Can be built in parallel once v1 is stable.
+
+  - Shoe brand recognition on player feet
+  - Jersey sponsor logo detection
+  - Courtside signage detection
+  - Beverage / product placement detection
+  - Output: brand name, frames visible, confidence, estimated screen time
+
+Technical approach:
+  - Fine-tune a YOLO model on labeled brand/logo images
+  - Run as a separate analysis pass on the same video
+  - Store results in a separate logos_detected table
+  - Show in a separate "Marketing Report" section of the dashboard
+
+Business case: Opens a second revenue stream — sports analytics customers
+are players/coaches, brand detection customers are marketing teams and sponsors.
+
+
+DECISION LOG (what was dropped and why)
+-----------------------------------------
+
+  Spring Boot           → Dropped. FastAPI keeps the stack in one language.
+  SQS / RabbitMQ        → Dropped. Postgres polling queue is sufficient at MVP scale.
+  OCR / jersey numbers  → Dropped. Color clustering handles team ID without OCR.
+  Arc detection         → Deferred to v2. Flat 1pt per basket for v1.
+  Per-frame DB storage  → Dropped. 18,000 frames × 6 players in DB is wasteful.
+                          Tracking lives in memory only.
+  Separate stats table  → Dropped. Scores are computed from shot_events on the fly.
+  GPU inference         → Deferred. CPU is slow but acceptable for demo MVP.
+  User accounts         → Deferred to v3. Anonymous uploads for v1.

@@ -1,0 +1,82 @@
+01 - SCENARIO AND SCOPE
+=======================
+
+THE EXACT SCENARIO WE ARE BUILDING FOR
+---------------------------------------
+
+- 3v3 half-court basketball game
+- 6 players total (3 per team)
+- Teams wear visually distinct jersey colors
+- Video source: a single YouTube video, approximately 10 minutes long
+- Fixed camera angle (not a broadcast — typically a phone or tripod recording)
+
+
+WHY THIS SCENARIO IS FAVORABLE
+--------------------------------
+
+- Fewer players = fewer tracking collisions
+- Different jersey colors = skip OCR entirely, color alone identifies teams
+- Fixed file = not a live stream, we can process it in full before showing results
+- Half-court = smaller play area, hoop stays in frame more consistently
+
+
+WHAT THE SYSTEM OUTPUTS (v1)
+------------------------------
+
+For each made basket:
+  - Which team scored (by jersey color)
+  - Timestamp in the video
+  - Confidence score (e.g. 0.81)
+
+Aggregated per team:
+  - Total points (flat 1 point per made basket for v1)
+
+That is it. No assists, no rebounds, no individual player names.
+
+
+THE SCORING CHAIN THE SYSTEM MUST FOLLOW
+------------------------------------------
+
+To award a point, the system must detect this sequence:
+
+  1. A player has possession of the ball
+  2. The ball leaves that player and travels toward the hoop
+  3. The ball passes through the hoop (downward direction)
+  4. The system attributes the basket to the team color of the shooting player
+
+Everything else (dribbles, passes, possession chains) is intermediate
+information used to support that conclusion, not an end output.
+
+
+WHAT v1 DELIBERATELY SKIPS
+-----------------------------
+
+- Jersey number reading (OCR)
+- Arc detection (no 1pt vs 2pt distinction — flat 1pt per basket)
+- Individual player stats (only team totals)
+- Rebounds, passes, assists, steals, blocks
+- Per-frame data storage
+- Live streaming support
+- Multi-video analysis
+
+
+HONEST ACCURACY EXPECTATION
+-----------------------------
+
+Approximately 70-85% accuracy on made basket detection.
+This varies significantly by camera angle.
+
+Best case: courtside angle where ball passing through hoop is clearly visible.
+Worst case: far away or off-angle camera where the ball disappears near the rim.
+
+The system will show a confidence score on every event.
+Low-confidence detections are flagged for user review.
+The system never claims 100% accuracy.
+
+
+FUTURE DIRECTIONS (not scope for v1)
+--------------------------------------
+
+v2: Rebounds, passes, shot chart, highlight clips
+v3: Assists, steals, team-level stats, multi-player tracking
+Later: Brand/logo detection for marketing analytics (separate pipeline)

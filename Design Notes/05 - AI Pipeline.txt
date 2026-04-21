@@ -1,0 +1,182 @@
+05 - AI PIPELINE
+=================
+
+This is the step-by-step process the Python worker executes on every video.
+All data lives in Python memory. Only the final events are written to the DB.
+
+
+STEP 1: VIDEO INGESTION
+------------------------
+
+Worker receives the video file path (downloaded from Cloudflare R2).
+
+Extract metadata using OpenCV:
+  - Duration (total frames / fps)
+  - FPS (frames per second)
+  - Resolution
+
+For a 10-minute video at 30fps: 18,000 total frames.
+
+Frame sampling strategy:
+  - Process every frame for short videos or high-accuracy mode
+  - Process every 2nd or 3rd frame for speed (still ~9,000-6,000 frames)
+  - MVP default: every 2nd frame
+
+
+STEP 2: FRAME EXTRACTION
+-------------------------
+
+OpenCV reads frames one at a time in a loop.
+Each frame is a numpy array (height × width × 3 color channels).
+
+No frames are saved to disk or the database.
+Processing is done entirely in memory, one frame at a time.
+
+
+STEP 3: OBJECT DETECTION (YOLOv8n)
+------------------------------------
+
+For each frame, run YOLOv8n to detect:
+  - "person" class → player bounding boxes
+  - "sports ball" class → ball bounding box
+
+YOLO is pre-trained on the COCO dataset. Both "person" and "sports ball"
+are included. No custom training required.
+
+Output per frame:
+  List of detections: { class, confidence, bbox: (x1, y1, x2, y2) }
+
+Hoop detection:
+  Option A (preferred): Fine-tuned YOLOv8n model for basketball hoops
+  Option B (MVP fallback): Run Hough Circle Transform once on the first
+    10 frames to locate the hoop circle, then treat it as a fixed point
+    for the entire video. Works because the hoop doesn't move.
+
+
+STEP 4: MULTI-OBJECT TRACKING (ByteTrack)
+------------------------------------------
+
+ByteTrack takes the YOLO detections for each frame and assigns stable
+integer track IDs across the full video.
+
+Example across three frames:
+  Frame 1: Player at (100,200) → assigned Track 3
+  Frame 2: Same player at (102,205) → still Track 3
+  Frame 3: Player hidden behind another → Track 3 predicted via Kalman filter
+  Frame 4: Player reappears → Track 3 reconciled and continues
+
+Kalman filter: A mathematical prediction model built into ByteTrack.
+When a tracked object disappears, the filter predicts where it should be
+based on its last known velocity. When it reappears, the prediction is
+corrected. This is what allows tracking to survive occlusion.
+
+Result: 6 stable integer track IDs for players, 1 for the ball.
+
+
+STEP 5: JERSEY COLOR CLASSIFICATION
+-------------------------------------
+
+Run once per player track, early in the video (first 30 seconds or first
+200 frames the track is visible).
+
+For each player track:
+  1. Crop the middle vertical third of the bounding box (jersey area, not head/legs)
+  2. Reshape the crop to a list of pixels
+  3. Run K-means clustering with k=1 to find dominant color
+  4. Store dominant color as [B, G, R] values
+
+After sampling all 6 tracks:
+  5. Run K-means with k=2 on the 6 dominant colors
+  6. Each track is assigned to cluster 0 or cluster 1
+  7. Cluster 0 = Team A, Cluster 1 = Team B
+
+This handles the full team assignment with no OCR, no training data,
+and no human input. Runs in under 1 second.
+
+
+STEP 6: BALL POSSESSION ESTIMATION
+------------------------------------
+
+For each frame, determine which player has possession.
+
+Rule: The player whose bounding box overlaps with or is nearest to the
+ball bounding box, sustained over at least 10 consecutive frames, is
+considered to have possession.
+
+Edge cases:
+  - Ball not detected: use last known possession
+  - Ball equidistant between two players: ambiguous, do not assign
+  - Ball in the air: possession is "none" (mid-flight)
+
+Output: A possession log mapping frame ranges to track IDs.
+  Example: { frames 300-340: Track 2, frames 341-360: none (shot), ... }
+
+
+STEP 7: SHOT ATTEMPT DETECTION
+--------------------------------
+
+A shot attempt is detected when:
+  1. A player has possession (track ID is assigned)
+  2. The ball's velocity vector becomes directed toward the hoop position
+  3. The ball separates from the player bounding box and continues upward
+
+The moment of separation is the "release point" — this frame's timestamp
+is stored as the shot event time.
+
+The player who had possession in the frames immediately before release
+is the shooter.
+
+
+STEP 8: MADE BASKET DETECTION
+-------------------------------
+
+This is the hardest step. See 06 - Known Challenges.txt for full detail.
+
+Detection logic:
+  1. Ball enters the hoop region (within ~1 hoop-radius of center)
+  2. Ball's velocity is downward (y-coordinate increasing toward rim)
+  3. Ball exits below the rim
+  4. Possession changes to the opposing team on the next play
+
+All four conditions increase confidence. The system outputs a confidence
+score (0.0 to 1.0) rather than a binary made/missed result.
+
+Confidence thresholds:
+  >= 0.75  →  counted as made basket, shown normally
+  0.50-0.74 →  counted, flagged as low confidence for user review
+  < 0.50   →  not counted, optionally shown as "uncertain event"
+
+
+STEP 9: RESULTS WRITING
+-------------------------
+
+After the full video is processed:
+
+  For each detected made basket:
+    - Insert row into shot_events (made_shot, player_id, timestamp, confidence, points=1)
+
+  For each detected shot attempt that did not result in a basket:
+    - Insert row into shot_events (shot_attempt, player_id, timestamp, confidence, points=0)
+
+  Insert 6 rows into players (one per track ID, with team label and color)
+
+  Update analysis_jobs: status = 'done', completed_at = NOW()
+
+Total DB writes for a 10-minute 3v3 game: approximately 40 rows.
+
+
+PIPELINE EXECUTION TIME ESTIMATE (CPU)
+----------------------------------------
+
+  Frame extraction:        fast (OpenCV reads directly)
+  YOLO detection per frame: ~50-200ms on CPU
+  ByteTrack per frame:     ~1ms (very fast)
+  Color classification:     < 1 second total
+  Possession estimation:    < 1 second total
+  Event detection:          < 1 second total
+
+  Total for 9,000 frames (every 2nd frame):
+    Low end:  9,000 × 50ms  =  7.5 minutes
+    High end: 9,000 × 200ms = 30 minutes
+
+GPU would reduce this to under 2 minutes. Not needed for demo MVP.

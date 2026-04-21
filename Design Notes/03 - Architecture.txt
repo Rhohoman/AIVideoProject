@@ -1,0 +1,137 @@
+03 - ARCHITECTURE
+==================
+
+SYSTEM OVERVIEW
+----------------
+
+The system has four parts that work in sequence:
+
+  [Frontend]  →  [FastAPI Backend]  →  [Postgres Jobs Table]  →  [Python Worker]
+                        |                                               |
+                   [Cloudflare R2]                              [Supabase Postgres]
+                   (video storage)                              (results storage)
+
+
+COMPONENT RESPONSIBILITIES
+---------------------------
+
+Frontend (Next.js on Vercel)
+  - Video upload form
+  - Job status polling (checks every few seconds while processing)
+  - Results dashboard: team scores, event timeline, confidence scores
+
+FastAPI Backend (Python on Render)
+  - Receives the uploaded video file
+  - Stores video in Cloudflare R2
+  - Creates a record in the videos table
+  - Creates a row in analysis_jobs with status = 'queued'
+  - Returns job ID to the frontend
+  - Serves job status and final results on request
+
+Postgres Jobs Table (Supabase)
+  - Acts as the queue — no separate queue service
+  - Worker polls this table every 5 seconds for status = 'queued' jobs
+
+Python Worker (same Render service as FastAPI for now)
+  - Polls analysis_jobs table
+  - Downloads video from R2
+  - Runs the full AI pipeline (see 05 - AI Pipeline.txt)
+  - Writes shot_events and player records to Postgres
+  - Updates job status to 'done' or 'failed'
+
+
+ASCII DIAGRAM
+--------------
+
+┌──────────────────────────────┐
+│           Frontend           │
+│       Next.js / Vercel       │
+│                              │
+│  - Upload video              │
+│  - Poll job status           │
+│  - View results              │
+└──────────────┬───────────────┘
+               │ HTTPS
+               ▼
+┌──────────────────────────────┐
+│        FastAPI Backend       │
+│         Python / Render      │
+│                              │
+│  POST /videos/upload         │
+│  POST /videos/{id}/analyze   │
+│  GET  /videos/{id}/status    │
+│  GET  /videos/{id}/results   │
+└──────┬──────────────┬────────┘
+       │              │
+       ▼              ▼
+┌─────────────┐  ┌──────────────────────┐
+│ Cloudflare  │  │  Supabase (Postgres)  │
+│     R2      │  │                      │
+│             │  │  videos              │
+│  video.mp4  │  │  analysis_jobs       │
+│             │  │  players             │
+└─────────────┘  │  shot_events         │
+                 └──────────┬───────────┘
+                            │ polls every 5s
+                            ▼
+              ┌─────────────────────────────┐
+              │       Python Worker         │
+              │     (same Render service)   │
+              │                             │
+              │  1. Download video from R2  │
+              │  2. Extract frames          │
+              │  3. Detect players + ball   │
+              │  4. Track across frames     │
+              │  5. Classify jersey colors  │
+              │  6. Estimate possession     │
+              │  7. Detect shots + baskets  │
+              │  8. Write results to DB     │
+              └─────────────────────────────┘
+
+
+API ENDPOINTS
+--------------
+
+POST   /videos/upload
+  - Body: multipart form with video file
+  - Response: { video_id, status: "queued" }
+
+POST   /videos/{id}/analyze
+  - Triggers job creation if not already queued
+  - Response: { job_id, status: "queued" }
+
+GET    /videos/{id}/status
+  - Response: { status: "queued" | "processing" | "done" | "failed" }
+
+GET    /videos/{id}/results
+  - Response: {
+      team_a_color: "blue",
+      team_b_color: "white",
+      team_a_points: 12,
+      team_b_points: 9,
+      events: [
+        {
+          event_type: "made_shot",
+          team: "a",
+          timestamp_seconds: 47.3,
+          confidence: 0.83,
+          points_awarded: 1
+        },
+        ...
+      ]
+    }
+
+
+MONOLITH FIRST, SPLIT LATER
+------------------------------
+
+At MVP scale, the FastAPI server and the Python worker live in one Render service.
+There is no microservice split. There is no Docker orchestration. There is no
+Kubernetes. This is intentional.
+
+The right time to split is when:
+  - Processing demand exceeds what one machine can handle
+  - You need the worker to scale independently of the API
+  - You have paying users who cannot wait 30+ minutes for results
+
+Until then, one service is the correct design.

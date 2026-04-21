@@ -1,0 +1,133 @@
+04 - DATA MODEL
+================
+
+Only 4 tables are needed for the v1 points-only MVP.
+
+Tracking data (18,000 frames × 6 players) lives in Python memory during
+processing and is discarded after events are extracted. It is NOT stored
+in the database. This saves enormous storage and simplifies the schema.
+
+For a 10-minute 3v3 game, total DB output is approximately 40 rows.
+
+
+TABLE DEFINITIONS
+------------------
+
+videos
+  Stores the uploaded video and its metadata.
+
+  id                UUID, primary key
+  filename          TEXT               original filename from upload
+  storage_url       TEXT               Cloudflare R2 object URL
+  duration_seconds  INTEGER
+  fps               FLOAT
+  resolution        TEXT               e.g. "1920x1080"
+  status            TEXT               'uploaded' | 'queued' | 'processing' | 'done' | 'failed'
+  created_at        TIMESTAMP
+
+
+analysis_jobs
+  Tracks the processing state of each video analysis run.
+
+  id                UUID, primary key
+  video_id          UUID, FK → videos.id
+  status            TEXT               'queued' | 'processing' | 'done' | 'failed'
+  started_at        TIMESTAMP          null until worker picks it up
+  completed_at      TIMESTAMP          null until processing finishes
+  error_message     TEXT               null unless status = 'failed'
+
+
+players
+  One row per tracked player per video. Six rows per analysis run.
+
+  id                UUID, primary key
+  video_id          UUID, FK → videos.id
+  track_id          INTEGER            ByteTrack-assigned ID (1-6)
+  team_label        TEXT               'a' or 'b'
+  jersey_color_rgb  TEXT               e.g. "24,100,220" (dominant color as B,G,R)
+
+
+shot_events
+  One row per detected shot attempt or made basket.
+  Team scores are computed by querying this table — no separate stats table needed.
+
+  id                UUID, primary key
+  video_id          UUID, FK → videos.id
+  player_id         UUID, FK → players.id
+  event_type        TEXT               'shot_attempt' | 'made_shot'
+  timestamp_seconds FLOAT              time in video when event occurred
+  confidence        FLOAT              0.0 to 1.0
+  points_awarded    INTEGER            1 for made_shot, 0 for shot_attempt
+
+
+COMPUTING SCORES
+-----------------
+
+Team scores are calculated on the fly from shot_events. No separate
+stats table is needed at this scale.
+
+Example query to get team totals:
+
+  SELECT p.team_label, SUM(e.points_awarded) as total_points
+  FROM shot_events e
+  JOIN players p ON e.player_id = p.id
+  WHERE e.video_id = :video_id
+    AND e.event_type = 'made_shot'
+  GROUP BY p.team_label;
+
+
+WHAT IS NOT IN THE DATABASE
+-----------------------------
+
+These were in the earlier data model draft but are not needed for v1:
+
+  - player_tracks table (per-frame bounding boxes)      → memory only
+  - ball_tracks table (per-frame ball positions)         → memory only
+  - player_stats table (aggregated counts)               → computed on the fly
+  - jersey_number column                                 → not used (no OCR)
+  - three_points_made / three_points_attempted           → no arc detection in v1
+  - rebounds, assists, steals, blocks                    → not tracked in v1
+
+
+SQL SCHEMA (ready to run)
+--------------------------
+
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+CREATE TABLE videos (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  filename         TEXT NOT NULL,
+  storage_url      TEXT NOT NULL,
+  duration_seconds INTEGER,
+  fps              FLOAT,
+  resolution       TEXT,
+  status           TEXT NOT NULL DEFAULT 'uploaded',
+  created_at       TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE analysis_jobs (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  video_id        UUID NOT NULL REFERENCES videos(id),
+  status          TEXT NOT NULL DEFAULT 'queued',
+  started_at      TIMESTAMP,
+  completed_at    TIMESTAMP,
+  error_message   TEXT
+);
+
+CREATE TABLE players (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  video_id         UUID NOT NULL REFERENCES videos(id),
+  track_id         INTEGER NOT NULL,
+  team_label       TEXT NOT NULL,
+  jersey_color_rgb TEXT
+);
+
+CREATE TABLE shot_events (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  video_id          UUID NOT NULL REFERENCES videos(id),
+  player_id         UUID NOT NULL REFERENCES players(id),
+  event_type        TEXT NOT NULL,
+  timestamp_seconds FLOAT NOT NULL,
+  confidence        FLOAT NOT NULL,
+  points_awarded    INTEGER NOT NULL DEFAULT 0
+);

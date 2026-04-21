@@ -1,60 +1,100 @@
-Updated 04/15/26
-
-Things to start with
+Updated 04/21/26
 
 
-a detailed MVP architecture diagram
-a database schema draft
-a backend API contract
-a step-by-step implementation plan
+=======================================================================
+PHASE 0 - PLANNING (Current)
+=======================================================================
+
+[DONE] Define MVP scenario (3v3, color jerseys, YouTube video, points only)
+[DONE] Choose tech stack
+[DONE] Define data model (4 tables)
+[DONE] Define AI pipeline steps
+[DONE] Identify known technical challenges
+
+[TODO] Set up project repository structure (folders for backend, frontend, worker)
+[TODO] Write database schema SQL file
+[TODO] Write API contract (list of endpoints with request/response shapes)
+[TODO] Draw final architecture diagram
 
 
+=======================================================================
+PHASE 1 - INFRASTRUCTURE SETUP
+=======================================================================
+
+[TODO] Create Supabase project and run schema migrations
+[TODO] Create Cloudflare R2 bucket for video storage
+[TODO] Set up Vercel project for frontend
+[TODO] Set up Render.com service for FastAPI backend
+[TODO] Confirm environment variables and secrets management
 
 
+=======================================================================
+PHASE 2 - BACKEND (FastAPI)
+=======================================================================
 
---------------------------------------------------------------------
-
-
-
-
-
-
-
-
-TO RESEARCH
+[TODO] POST /videos/upload     - accept video file, store in R2, create DB record
+[TODO] POST /videos/{id}/analyze - create analysis job row
+[TODO] GET  /videos/{id}/status  - return job status
+[TODO] GET  /videos/{id}/results - return shot events and team scores
 
 
+=======================================================================
+PHASE 3 - PYTHON WORKER
+=======================================================================
 
-Object detection
+[TODO] Frame extraction from video (OpenCV)
+[TODO] YOLOv8n object detection on frames (players + ball)
+[TODO] ByteTrack player tracking (stable track IDs across frames)
+[TODO] Jersey color extraction and K-means team assignment
+[TODO] Ball possession estimation (proximity logic)
+[TODO] Shot attempt detection (ball leaves player toward hoop)
+[TODO] Made basket detection (ball passes through hoop area downward)
+[TODO] Shot attribution (which track ID took the shot)
+[TODO] Write shot_events to database
 
-Finding players, ball, hoop in a frame
 
-Tracking
+=======================================================================
+PHASE 4 - FRONTEND (Next.js)
+=======================================================================
 
-Keeping the same player identity across frames
+[TODO] Video upload page
+[TODO] Job status polling / loading state
+[TODO] Results dashboard: team scores + event timeline with timestamps
+[TODO] Confidence scores shown per event
 
-OCR
 
-Reading jersey numbers
+=======================================================================
+PHASE 5 - TESTING AND CALIBRATION
+=======================================================================
 
-Event inference
+[TODO] Run on one real 3v3 game video
+[TODO] Manually verify made basket detections against ground truth
+[TODO] Tune confidence thresholds
+[TODO] Document accuracy rate
 
-Turning movement patterns into basketball actions
 
-Business logic / stats engine
+=======================================================================
+KNOWN DECISIONS (don't revisit these for v1)
+=======================================================================
 
-Turning detected actions into official-like stats
+- No OCR, no jersey number reading
+- No arc detection — flat 1 point per made basket
+- No per-frame storage in DB (tracking data lives in memory during processing only)
+- No separate queue service — Postgres jobs table only
+- No Spring Boot — FastAPI only
+- Worker and API run on same Render service at MVP scale
+- CPU inference only for v1 (GPU if processing time becomes unacceptable)
 
-Queue
 
-Handling long-running work asynchronously
+=======================================================================
+TO RESEARCH (before building each phase)
+=======================================================================
 
-Object storage
-
-Saving video files outside the database
-
-Relational database
-
-Saving structured results and metadata
-
-If you understand those, the whole design becomes much easier.
+- YOLOv8n setup and inference API (ultralytics library)
+- ByteTrack integration via Supervision library
+- OpenCV K-means for dominant color extraction
+- Supabase Python client
+- Cloudflare R2 with boto3 (S3-compatible API)
+- FastAPI file upload handling (UploadFile)
+- Hoop detection fallback (Hough Circle Transform in OpenCV)
+- Kalman filter — understand how ByteTrack uses it for occlusion handling

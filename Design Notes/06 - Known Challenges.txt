@@ -1,0 +1,159 @@
+06 - KNOWN CHALLENGES
+======================
+
+These are the real technical difficulties for this specific scenario.
+Understanding them upfront prevents building the wrong solutions.
+
+
+CHALLENGE 1: BALL DETECTION AND OCCLUSION
+-------------------------------------------
+
+The basketball is a small, fast-moving object.
+
+In a 10-minute video at 30fps, the ball is visible and trackable in
+approximately 60-70% of frames. The rest of the time it is:
+
+  - Held in a player's hands and partially hidden
+  - Mid-flight and motion-blurred
+  - Behind another player's body
+  - Out of frame during a long pass
+
+Impact: If the system loses the ball 10 frames before a shot, it cannot
+reliably detect the shot.
+
+Solution: ByteTrack's Kalman filter predicts the ball's position when
+it is not detected. When the ball reappears, the prediction is corrected.
+This is built into ByteTrack. We do not write this ourselves.
+
+Reality check: The system will still miss some shots where the ball is
+occluded for an extended period before release.
+
+
+CHALLENGE 2: MADE BASKET DETECTION (HARDEST PROBLEM)
+------------------------------------------------------
+
+Detecting a shot attempt is easier than detecting it went in.
+A confirmed made basket requires observing:
+
+  1. Ball enters hoop area from above
+  2. Ball travels downward through the cylinder
+  3. Ball exits below the rim
+
+This is camera-angle dependent:
+
+  - Courtside angle (side view): The ball passing through the hoop is
+    visible. This is the best case.
+
+  - Far-back angle: The ball approaches the rim and disappears.
+    The system must infer the make from context:
+      → Ball reappears below the rim
+      → Possession changes to the other team
+      → No rebound motion visible
+
+  - Overhead angle: Ball passing through is clearly visible but this
+    camera position is rare for amateur recordings.
+
+Practical limitation: The MVP will miss some made baskets and may
+occasionally count a near-miss (ball hits rim and bounces away) as a make.
+This is unavoidable at this stage.
+
+That is why confidence scores are shown per event. A "made basket (0.61)"
+tells the user to verify that one.
+
+
+CHALLENGE 3: SHOT ATTRIBUTION — WHO SHOT IT?
+---------------------------------------------
+
+The system must correctly identify which player released the ball.
+
+Difficulty: A catch-and-shoot in one motion is hard to distinguish from
+a pass. The ball may be mid-flight between a passer and a shooter just
+as the shooter is catching it.
+
+Rule used:
+  The player with possession in the frames immediately before the ball's
+  velocity becomes directed at the hoop is the shooter.
+
+  Specifically:
+    → Find the frame where ball separates from all player bounding boxes
+    → Look back 10-15 frames
+    → The player whose box most recently overlapped with the ball is the shooter
+    → That player's team gets the point
+
+This works well for standard shot sequences. It can fail on quick catch-
+and-shoot plays where the catch and release happen within 3-5 frames.
+
+
+CHALLENGE 4: 2-POINT VS 1-POINT (THE ARC PROBLEM)
+----------------------------------------------------
+
+In FIBA 3x3 basketball:
+  - 1 point for shots inside the arc
+  - 2 points for shots behind the arc
+
+To determine this, the system needs to know:
+  1. Where the 3-point arc is in the video frame
+  2. Where the shooter's feet were at the moment of release
+
+Court line detection methods:
+  - Hough Circle Transform (OpenCV) to detect the arc as a circle
+  - Homography: map a known court template onto the video perspective
+
+MVP decision: Skip arc detection entirely for v1.
+Award a flat 1 point per made basket regardless of position.
+Label this clearly in the UI: "Points (1pt per basket — arc detection in v2)"
+
+This removes significant complexity from v1 and lets us ship something
+working. Arc detection is a well-defined problem for v2.
+
+
+CHALLENGE 5: TRACKING IDENTITY SWAPS
+--------------------------------------
+
+When two players cross paths or collide, ByteTrack can occasionally
+swap their track IDs — what was Track 3 becomes Track 5 and vice versa.
+
+Impact for our scenario: An identity swap means a basket could be
+credited to the wrong team if the swap occurs near a shot event.
+
+Mitigation:
+  - Jersey color classification is re-run periodically (every 60 seconds)
+    to catch and correct any track that drifted to the wrong team
+  - Because teams wear visually distinct colors, a team-level error
+    (wrong team gets the point) is much less likely than a player-level
+    error (wrong player within the same team)
+
+For v1, team-level accuracy is what matters. Individual player
+attribution within a team is not tracked.
+
+
+CHALLENGE 6: HOOP POSITION STABILITY
+--------------------------------------
+
+The hoop position is needed as a reference point for shot detection
+and made basket detection.
+
+For most amateur 3v3 recordings, the camera is relatively stable.
+The hoop stays in approximately the same position throughout the video.
+
+MVP approach:
+  - Detect hoop position in the first 10-20 frames
+  - Use Hough Circle Transform or a manual bounding box
+  - Treat that position as fixed for the entire video
+  - Add a small tolerance zone around it for detection
+
+If the camera pans significantly, the hoop detection will drift.
+This is an acceptable limitation for v1.
+
+
+SUMMARY TABLE
+--------------
+
+Challenge                  Severity   v1 Solution
+--------------------------  ---------  ------------------------------------------
+Ball occlusion             Medium     ByteTrack Kalman filter (built in)
+Made basket detection      High       Confidence scoring + user flagging
+Shot attribution           Low-Med    Possession tracking, 10-frame lookback
+Arc / scoring zone         Low        Skip — flat 1pt per basket for v1
+Track identity swaps       Low        Periodic color re-classification
+Hoop position drift        Low        Fixed hoop position from early frames

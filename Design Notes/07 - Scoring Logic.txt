@@ -1,0 +1,130 @@
+07 - SCORING LOGIC
+===================
+
+This document defines exactly how basketball events become points.
+This is business logic built on top of AI detections — not a vision model.
+
+
+V1 SCORING RULE (SIMPLE)
+--------------------------
+
+  1 point per made basket, regardless of shot position.
+  Arc detection is deferred to v2.
+
+This is displayed clearly in the UI so users understand the limitation.
+
+
+THE EVENT CHAIN FOR AWARDING A POINT
+--------------------------------------
+
+For each point to be awarded, the system must observe this sequence:
+
+  Step 1: Possession
+    Player X (Team A or Team B) has the ball.
+    Determined by: ball bounding box overlapping or nearest to player X
+    for at least 10 consecutive frames.
+
+  Step 2: Shot release
+    The ball separates from all player bounding boxes and its velocity
+    vector is directed toward the hoop.
+    This is the "shot attempt" event. Timestamp is recorded here.
+
+  Step 3: Made basket
+    The ball enters the hoop region from above and exits below the rim.
+    Alternatively: ball enters hoop region and possession changes to
+    the other team without a visible rebound.
+
+  Step 4: Attribution
+    The point is credited to Team A or Team B based on the jersey color
+    of the player who had possession at Step 2.
+
+  Step 5: Write to database
+    Insert one 'made_shot' row in shot_events.
+    points_awarded = 1
+    confidence = calculated score from Step 3 detection quality
+
+
+CONFIDENCE SCORE CALCULATION
+------------------------------
+
+The confidence value on each shot event reflects how certain the system
+is that the detection is correct. It is not a single model output — it
+is a composite of several signals:
+
+  Signal                              Weight
+  ----------------------------------  ------
+  Ball detected entering hoop region  High
+  Ball velocity is downward at rim    High
+  Ball exits below rim                High
+  Possession change after event       Medium
+  No rebound motion visible           Low
+
+A simple weighted average of the signals that were observed produces
+the final confidence. Thresholds:
+
+  >= 0.75  →  high confidence, shown normally
+  0.50-0.74 →  low confidence, flagged with a warning icon
+  < 0.50   →  not counted as a basket
+
+
+WHAT IS NOT IN V1 SCORING
+---------------------------
+
+  - 2-point shots (behind arc)     → deferred to v2
+  - Free throws                    → not applicable in 3x3 (they score 1pt,
+                                     same as inside arc shots; v2 if needed)
+  - Offensive rebounds + putbacks  → counted as a new possession + shot
+  - Turnovers                      → not tracked
+  - Fouls                          → not tracked
+
+
+V2 SCORING ADDITIONS (PLANNED)
+--------------------------------
+
+When arc detection is added in v2:
+
+  FIBA 3x3 rules:
+    Shooter's feet inside the arc → 1 point
+    Shooter's feet behind the arc → 2 points
+
+  Implementation requires:
+    1. Detect the arc line on the court (Hough Circle or homography)
+    2. Map the arc from video pixel coordinates to court coordinates
+    3. At the moment of shot release, check whether the shooter's
+       feet (bottom of bounding box) are inside or outside the arc
+    4. Award 1 or 2 accordingly
+
+
+EXAMPLE OUTPUT (v1)
+---------------------
+
+{
+  "team_a_color": "blue",
+  "team_b_color": "white",
+  "team_a_points": 8,
+  "team_b_points": 10,
+  "events": [
+    {
+      "event_type": "made_shot",
+      "team": "b",
+      "timestamp_seconds": 23.4,
+      "confidence": 0.91,
+      "points_awarded": 1
+    },
+    {
+      "event_type": "shot_attempt",
+      "team": "a",
+      "timestamp_seconds": 47.2,
+      "confidence": 0.77,
+      "points_awarded": 0
+    },
+    {
+      "event_type": "made_shot",
+      "team": "a",
+      "timestamp_seconds": 61.8,
+      "confidence": 0.58,
+      "points_awarded": 1,
+      "flag": "low_confidence"
+    }
+  ]
+}
